@@ -7,7 +7,9 @@ import {templates,pages,demos} from './catalog.mjs';
 import {layout,home,esc,builder,ceremony,cards} from './views.mjs';
 import {pngQR} from './qr.mjs';
 const dir=process.env.DATA_DIR||'data',port=Number(process.env.PORT||3000);
-const origin=new URL(process.env.PUBLIC_ORIGIN||'http://localhost:'+port).origin;
+const publicURL=new URL(process.env.PUBLIC_ORIGIN||'http://localhost:'+port);
+const base=publicURL.pathname.replace(/\/+$/, '');
+const origin=publicURL.origin+base;
 mkdirSync(dir,{recursive:true});
 const db=new DatabaseSync(join(dir,'launch.sqlite'));
 db.exec(`PRAGMA journal_mode=WAL;
@@ -40,7 +42,8 @@ function validate(input){
 async function json(req){let body='';for await(const bytes of req){body+=bytes;if(body.length>950000)fail(413,'Request too large.');}try{const d=JSON.parse(body||'{}');if(d&&typeof d==='object'&&!Array.isArray(d))return d;}catch{}fail(400,'Invalid JSON.');}
 const asset=name=>readFileSync(new URL('./public/'+name,import.meta.url));
 http.createServer(async(req,res)=>{
- const send=(status,data,type='text/html; charset=utf-8')=>{res.writeHead(status,{'Content-Type':type});res.end(data);};
+ const send=(status,data,type='text/html; charset=utf-8')=>{res.writeHead(status,{'Content-Type':type});if(base && type.startsWith('text/html')) data=data.replace(/( (?:href|src)=")\/(?!\/)/g, '$1'+base+'/');
+ res.end(data);};
  const reply=data=>send(200,JSON.stringify(data),'application/json');
  try{
  const path=new URL(req.url,origin).pathname,[,route,id,action]=path.split('/');
@@ -48,7 +51,7 @@ http.createServer(async(req,res)=>{
  res.setHeader('Cache-Control','no-store');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('X-Content-Type-Options','nosniff');
  res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
  if(req.method==='POST'){
-  if(req.headers.origin&&req.headers.origin!==origin)fail(403,'Origin mismatch.');
+  if(req.headers.origin&&req.headers.origin!==publicURL.origin)fail(403,'Origin mismatch.');
   if(!req.headers['content-type']?.startsWith('application/json'))fail(415,'JSON required.');
   const input=await json(req);
   if(path==='/api/create'){
@@ -93,7 +96,7 @@ http.createServer(async(req,res)=>{
  if(path==='/style.css'||path==='/app.js')return send(200,asset(path.slice(1)),path.endsWith('css')?'text/css':'text/javascript');
  if(path==='/catalog.js')return send(200,readFileSync(new URL('./catalog.mjs',import.meta.url)),'text/javascript');
  if(path==='/api/time')return reply({now:Date.now()});
- if(path==='/robots.txt')return send(200,'User-agent: *\nDisallow: /manage/\nDisallow: /admin\nSitemap: '+origin+'/sitemap.xml','text/plain');
+ if(path==='/robots.txt')return send(200,'User-agent: *\nDisallow: '+base+'/manage/\nDisallow: '+base+'/admin\nSitemap: '+origin+'/sitemap.xml','text/plain');
  function listed(key){return db.prepare("SELECT id,config FROM launches WHERE active=1 AND json_extract(config,?)=1").all('$.'+key);}
  if(path==='/sitemap.xml'){const paths=['/',...Object.keys(pages),...Object.keys(demos).map(x=>'/templates/'+x),...listed('indexed').map(x=>'/l/'+x.id)];return send(200,'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'+paths.map(p=>'<url><loc>'+esc(origin+p)+'</loc></url>').join('')+'</urlset>','application/xml');}
  if(Object.hasOwn(pages,path)){const [title,desc]=pages[path];let extra=path==='/templates'?cards():'';
@@ -114,4 +117,4 @@ http.createServer(async(req,res)=>{
  }
  fail(404,'Page unavailable.');
  }catch(e){if(!e.status)console.error(e.message);send(e.status||500,req.method==='POST'?JSON.stringify({error:e.status?e.message:'Server error'}):layout('LaunchPad', '', '<section><h1>'+esc(e.status?e.message:'Server error')+'</h1><a href="/">Return home</a></section>',{index:false}),req.method==='POST'?'application/json':'text/html; charset=utf-8');}
-}).listen(port,()=>console.log('LaunchPad listening on '+port));
+}).listen(port,process.env.HOST||'0.0.0.0',()=>console.log('LaunchPad listening on '+port));

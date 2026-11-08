@@ -1,7 +1,9 @@
-import {templates} from '/catalog.js';
+import {templates} from './catalog.js';
+const base=new URL('.',import.meta.url).pathname.replace(/\/$/,'');
+const page=location.pathname.slice(base.length);
 const $=(s,root=document)=>root.querySelector(s);
 async function post(url,data={}){
- const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+ const r=await fetch(base+url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
  const result=await r.json();if(!r.ok)throw Error(result.error);return result;
 }
 const pause=ms=>new Promise(done=>setTimeout(done,ms));
@@ -25,7 +27,7 @@ if(form){
  try{
  const data=Object.fromEntries(new FormData(form));for(const c of form.querySelectorAll('[type=checkbox]'))data[c.name]=c.checked;
  data.at=data.at?new Date(data.at).getTime():0;
- const create=location.pathname==='/create',result=await post(create?'/api/create':location.pathname,data);
+ const create=page==='/create',result=await post(create?'/api/create':page,data);
  if(result.challenge){
  let widget=$('#verification');
  if(!widget){widget=document.createElement('div');widget.id='verification';form.insertBefore(widget,btn);const challenge=document.createElement('script');challenge.src='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';challenge.onload=()=>window.turnstile.render(widget,{sitekey:result.challenge,'response-field-name':'challenge'});document.head.append(challenge);}else window.turnstile?.reset();
@@ -42,7 +44,7 @@ if(form){
  };
 }
 for(const [selector,action] of [['[data-delete]','delete'],['[data-toggle]','toggle'],['[data-remove]','remove']]){
- for(const b of document.querySelectorAll(selector))b.onclick=async()=>{if(!confirm(b.textContent+'?'))return;try{await post(location.pathname+'/'+action,{id:b.dataset.remove});if(action==='delete')location.assign('/');else location.reload();}catch(e){alert(e.message);}};
+ for(const b of document.querySelectorAll(selector))b.onclick=async()=>{if(!confirm(b.textContent+'?'))return;try{await post(page+'/'+action,{id:b.dataset.remove});if(action==='delete')location.assign(base+'/');else location.reload();}catch(e){alert(e.message);}};
 }
 const stage=$('.ceremony');
 if(stage){
@@ -56,7 +58,7 @@ if(stage){
  if(popup)popup.opener=null;
  try{if(navigate){const r=await event('start');$('h1',stage).textContent=r.title;}
  await play(stage);
- if(navigate){await event('finish');certificate();await pause(600);if(popup)popup.location.href='/go/'+d.id;else if(d.tab!=='true')location.assign('/go/'+d.id);else output.textContent+=' Select Enter website to continue.';}
+ if(navigate){await event('finish');certificate();await pause(600);if(popup)popup.location.href=base+'/go/'+d.id;else if(d.tab!=='true')location.assign(base+'/go/'+d.id);else output.textContent+=' Select Enter website to continue.';}
  }catch(e){popup?.close();output.textContent=e.message;}finally{running=false;btn.disabled=false;}
  }
  function certificate(){
@@ -68,18 +70,18 @@ if(stage){
  btn.onclick=()=>activate();$('.scene',stage).onclick=()=>activate();
  if($('[data-replay]'))$('[data-replay]').onclick=()=>activate(true);
  if($('[data-report]'))$('[data-report]').onclick=async e=>{try{await event('report');e.target.textContent='Report received';e.target.disabled=true;}catch(err){output.textContent=err.message;}};
- if(locked){btn.disabled=true;const sync=async()=>{try{const r=await fetch('/api/time');const t=await r.json();offset=t.now-Date.now();
+ if(locked){btn.disabled=true;const sync=async()=>{try{const r=await fetch(base+'/api/time');const t=await r.json();offset=t.now-Date.now();
  const tick=()=>{const left=Math.max(0,Math.ceil((Number(d.at)-Date.now()-offset)/1000));clock.textContent=left?[Math.floor(left/86400)+'d',Math.floor(left/3600)%24+'h',Math.floor(left/60)%60+'m',left%60+'s'].join('  '):'Launch is open';if(left)setTimeout(tick,300);else{locked=false;btn.disabled=false;if(d.auto==='true')activate(false,true);}};tick();
  }catch{clock.textContent='Synchronizing countdown…';setTimeout(sync,3000);}};sync();}
 }
-for(const b of document.querySelectorAll('[data-review]'))b.onclick=async()=>{try{await post(location.pathname+'/'+b.dataset.review,{note:b.dataset.noteid});b.closest('aside').remove();}catch(e){alert(e.message);}};
+for(const b of document.querySelectorAll('[data-review]'))b.onclick=async()=>{try{await post(page+'/'+b.dataset.review,{note:b.dataset.noteid});b.closest('aside').remove();}catch(e){alert(e.message);}};
 for(const b of document.querySelectorAll('[data-react]'))b.onclick=async()=>{try{await post('/event/'+stage.dataset.id+'/react',{kind:b.dataset.react});const n=$('span',b);n.textContent=Number(n.textContent)+1;b.disabled=true;}catch(e){$('.community output').textContent=e.message;}};
 if($('#note'))$('#note').onsubmit=async e=>{e.preventDefault();try{await post('/event/'+stage.dataset.id+'/note',{message:e.target.elements.message.value});e.target.reset();$('.community output').textContent='Your message is awaiting review.';}catch(err){$('.community output').textContent=err.message;}};
 for(const field of document.querySelectorAll('[data-image]'))field.onchange=async()=>{
  const file=field.files[0];if(!file)return;field.setCustomValidity('Preparing image…');
  try{if(file.size>5000000)throw Error('Choose an image under 5 MB.');const img=await createImageBitmap(file);const scale=Math.min(1,(field.dataset.image==='logo'?180:650)/Math.max(img.width,img.height));const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(img.width*scale));canvas.height=Math.max(1,Math.round(img.height*scale));canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);img.close();const uri=canvas.toDataURL();if(uri.length>450000)throw Error('Choose a smaller image.');form.elements[field.dataset.image].value=uri;field.setCustomValidity('');}catch(e){field.setCustomValidity(e.message);field.reportValidity();}
 };
-if(form&&location.pathname==='/create'){
+if(form&&page==='/create'){
  const sets=[...form.querySelectorAll('fieldset')],submit=$('[type=submit]',form);
  let step=0;const controls=document.createElement('div');controls.className='steps';controls.innerHTML='<button type="button" class="secondary">Back</button><span></span><button type="button">Continue</button>';form.insertBefore(controls,submit);
  const [back,next]=controls.querySelectorAll('button');
